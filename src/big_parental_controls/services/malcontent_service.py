@@ -198,7 +198,7 @@ class MalcontentService:
     ) -> None:
         """Set daily session schedule for a user UID."""
         builder = Malcontent.SessionLimitsBuilder.new()
-        builder.set_daily_schedule(daily_start_secs, daily_end_secs)
+        builder.set_daily_schedule(True, daily_start_secs, daily_end_secs)
         limits = builder.end()
         self._manager.set_session_limits(
             uid,
