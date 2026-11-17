@@ -718,7 +718,8 @@ msgstr "L'utilisateur '%s' a été supprimé."
 #: src/big_parental_controls/ui/pages/user_detail_page.py:469
 #, fuzzy, python-format
 msgid "Failed to delete user '%s'."
-msgstr "Échec de la suppression de l'utilisateur '%s'."controls/pages/users_page.py, line: 195
+msgstr "Échec de la suppression de l'utilisateur '%s'."
+#
 #: src/big_parental_controls/ui/pages/users_page.py:69
 #: src/big_parental_controls/ui/pages/users_page.py:134
 msgid "Create Supervised User"
@@ -1029,3 +1030,99 @@ msgstr "Menu principal"
 #: src/big_parental_controls/data/window.ui:270
 msgid "About"
 msgstr "À propos"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Extra Time"
+msgstr "Temps supplémentaire"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "The child can ask for more time from the clock icon; a parent approves by typing the parent code."
+msgstr "L'enfant peut demander du temps en plus depuis l'icône d'horloge ; un parent valide en tapant le code parent."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Allow requests for extra time"
+msgstr "Autoriser les demandes de temps en plus"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Minutes per request"
+msgstr "Minutes par demande"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Maximum requests per day"
+msgstr "Nombre maximal de demandes par jour"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Also push back the end of allowed hours"
+msgstr "Repousser aussi l'heure de fin de la plage horaire"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "The open session may continue after the end time; logging in again afterwards stays impossible."
+msgstr "La session ouverte peut continuer après l'heure de fin ; se reconnecter ensuite reste impossible."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Parent code"
+msgstr "Code parent"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Change…"
+msgstr "Modifier…"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Today"
+msgstr "Aujourd'hui"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Set"
+msgstr "Défini"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Not set — requests are refused until it is set"
+msgstr "Non défini — les demandes sont refusées tant qu'il n'est pas défini"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Unknown (parental daemon not reachable)"
+msgstr "Inconnu (service de contrôle parental injoignable)"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "%(bonus)d min granted, %(left)d request(s) left"
+msgstr "%(bonus)d min accordée(s), %(left)d demande(s) restante(s)"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Grant %d min now"
+msgstr "Accorder %d min maintenant"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "4 to 8 digits. It is asked on the child's session to approve extra time."
+msgstr "4 à 8 chiffres. Il est demandé sur la session de l'enfant pour valider du temps en plus."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "New code"
+msgstr "Nouveau code"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Confirm code"
+msgstr "Confirmer le code"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Save"
+msgstr "Enregistrer"
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Parent code saved."
+msgstr "Code parent enregistré."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "The parent code could not be saved."
+msgstr "Le code parent n'a pas pu être enregistré."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "%d extra minutes granted for today."
+msgstr "%d minutes supplémentaires accordées pour aujourd'hui."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "This user has no daily limit or extendable schedule."
+msgstr "Ce compte n'a ni limite quotidienne ni plage horaire repoussable."
+
+#: src/big_parental_controls/ui/pages/time_limits_page.py
+msgid "Extra time could not be granted."
+msgstr "Le temps supplémentaire n'a pas pu être accordé."
