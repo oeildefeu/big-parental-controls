@@ -1,6 +1,9 @@
 """Users page — manage supervised accounts."""
 
+import re
 import subprocess
+import unicodedata
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -16,6 +19,28 @@ from big_parental_controls.utils.async_runner import run_async
 from big_parental_controls.utils.i18n import setup_i18n
 
 _ = setup_i18n()
+
+
+_LOGIN_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+
+def to_login(text: str) -> str:
+    """Valid Linux login derived from what was typed (issue #2).
+
+    "Jéçica" -> "jecica", "Anne Marie" -> "anne-marie": accents removed,
+    lowercase, spaces become "-", anything else dropped, 32 chars max,
+    must start with a letter or "_" (useradd's default rule).
+    """
+    ascii_text = (
+        unicodedata.normalize("NFKD", text.strip())
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    login = re.sub(r"\s+", "-", ascii_text)
+    login = re.sub(r"[^a-z0-9_-]", "", login)
+    login = login.lstrip("0123456789-")[:32]
+    return login if _LOGIN_RE.match(login) else ""
 
 
 def _save_user_age_profile(username: str, age_range: str) -> None:
@@ -178,7 +203,17 @@ class UsersPage(Gtk.Box):
         fullname_hid: list[int | None] = [None]
 
         def _validate(*_args: object) -> None:
-            uname = username_row.get_text().strip()
+            typed = username_row.get_text().strip()
+            uname = to_login(typed)
+            # Show the real login when it differs from what was typed.
+            if typed and uname and uname != typed:
+                username_row.set_title(_("Username") + " → " + uname)
+            else:
+                username_row.set_title(_("Username"))
+            if typed and not uname:
+                username_row.add_css_class("error")
+            else:
+                username_row.remove_css_class("error")
             pwd = password_row.get_text()
             conf = confirm_row.get_text()
             ok = bool(uname) and bool(pwd) and pwd == conf
@@ -233,8 +268,9 @@ class UsersPage(Gtk.Box):
         if response != "create":
             return
 
-        username = username_row.get_text().strip()
-        fullname = fullname_row.get_text().strip()
+        typed = username_row.get_text().strip()
+        username = to_login(typed)
+        fullname = fullname_row.get_text().strip() or typed
         password = password_row.get_text()
 
         if not username or not password:
