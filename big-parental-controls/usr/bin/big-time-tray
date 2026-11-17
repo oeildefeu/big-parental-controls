@@ -11,8 +11,9 @@ Works with any desktop that shows status-notifier / app-indicator icons
 a classic GtkStatusIcon otherwise.
 """
 
-import grp
+import contextlib
 import getpass
+import grp
 import os
 import sys
 import tempfile
@@ -39,6 +40,9 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from big_parental_controls.services import time_left as tl  # noqa: E402
 
+_, _n = tl._tr()
+
+
 def _sni_watcher_present() -> bool:
     """True when the desktop runs a StatusNotifier watcher (KDE, GNOME ext., XFCE plugin)."""
     try:
@@ -50,7 +54,7 @@ def _sni_watcher_present() -> bool:
                               GLib.Variant("(s)", ("org.kde.StatusNotifierWatcher",)),
                               None, Gio.DBusCallFlags.NONE, 1000, None)
         return bool(reply.unpack()[0])
-    except Exception:
+    except Exception:  # noqa: BLE001 — no session bus: fall back to GtkStatusIcon
         return False
 
 
@@ -121,15 +125,14 @@ def draw_icon(rem) -> str:
 
 class Tray:
     def __init__(self):
-        self.t = tl.TEXTS[tl.lang()]
         self.user = USER
         self.menu = Gtk.Menu()
         # Normal (sensitive) items: insensitive ones are drawn greyed-out and unreadable.
-        self.items = [Gtk.MenuItem(label="…") for _ in range(3)]
+        self.items = [Gtk.MenuItem(label="…") for _i in range(3)]
         for item in self.items:
             item.connect("activate", lambda _i: tl.main(["--notify"]))
             self.menu.append(item)
-        # "Ask for 15 more minutes" (parent PIN), shown only while possible.
+        # "Ask for more time" (parent code), shown only while a request is possible.
         self.ask_sep = Gtk.SeparatorMenuItem()
         self.ask_item = Gtk.MenuItem(label="…")
         self.ask_item.connect("activate", lambda _i: self.ask_extra())
@@ -156,12 +159,11 @@ class Tray:
     def refresh(self):
         info = tl.compute(self.user, datetime.now())
         rem = info["remaining"]
-        label = (self.t["unlimited"] if rem is None else
-                 self.t["over"] if rem <= 0 else tl.fmt(rem))
-        detail = tl.details(info, self.t)
-        title = f"{self.t['left']} : {label}"
+        label = tl.short_label(rem)
+        detail = tl.details(info)
+        title = f"{tl.title()}: {label}"
         name = draw_icon(rem)
-        lines = [title] + detail.split("\n")
+        lines = [title, *detail.splitlines()]
         for i, item in enumerate(self.items):
             if i < len(lines):
                 text = GLib.markup_escape_text(lines[i])
@@ -169,41 +171,43 @@ class Tray:
                 item.show()
             else:
                 item.hide()
-        can_ask = info["quota_left"] is not None and info["requests_left"] > 0
         self.step = info["step"]
-        self.ask_item.set_label(self.t["ask"].format(n=self.step, r=info["requests_left"]))
-        self.ask_sep.set_visible(can_ask)
-        self.ask_item.set_visible(can_ask)
+        left = info["requests_left"]
+        self.ask_item.set_label(
+            _n("Ask for %(min)d more min (%(left)d request left)",
+               "Ask for %(min)d more min (%(left)d requests left)", left)
+            % {"min": self.step, "left": left})
+        self.ask_sep.set_visible(left > 0)
+        self.ask_item.set_visible(left > 0)
         if self.indicator is not None:
             self.indicator.set_icon_full(name, title)
             self.indicator.set_title(title)
-            try:
+            with contextlib.suppress(TypeError):
                 self.indicator.set_label(label, "00h00")
-            except TypeError:
-                pass
         else:
             self.status_icon.set_from_file(str(ICON_DIR / f"{name}.png"))
-            self.status_icon.set_tooltip_text(f"{title}\n{detail}")
+            self.status_icon.set_tooltip_text(title + "\n" + detail)
         return True  # keep the timer
 
     def ask_extra(self):
-        """PIN dialog: a parent types their code to grant more minutes."""
+        """Parent-code dialog: a parent types their code to grant more minutes."""
         if self.dialog is not None:
             self.dialog.present()
             return
-        t = self.t
-        dlg = Gtk.Dialog(title=t["ask_title"], modal=True)
+        dlg = Gtk.Dialog(title=_("Ask for more time"), modal=True)
         dlg.set_keep_above(True)
         dlg.set_position(Gtk.WindowPosition.CENTER)
-        dlg.add_button(t["cancel"], Gtk.ResponseType.CANCEL)
-        dlg.add_button(t["ok_btn"], Gtk.ResponseType.OK)
+        dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
+        dlg.add_button(_("OK"), Gtk.ResponseType.OK)
         dlg.set_default_response(Gtk.ResponseType.OK)
         box = dlg.get_content_area()
         box.set_spacing(10)
         box.set_border_width(14)
-        box.add(Gtk.Label(label=t["ask_body"].format(n=self.step), xalign=0))
+        box.add(Gtk.Label(
+            label=_("A parent must type the parent code to grant %d minutes.") % self.step,
+            xalign=0))
         entry = Gtk.Entry(visibility=False, max_length=8, activates_default=True,
-                          placeholder_text=t["pin"])
+                          placeholder_text=_("Parent code"))
         entry.set_input_purpose(Gtk.InputPurpose.PIN)
         box.add(entry)
         status = Gtk.Label(xalign=0)
@@ -219,14 +223,12 @@ class Tray:
                 return
             code = tl.request_extra(entry.get_text())
             entry.set_text("")
-            msg = tl.result_text(code, t)
+            msg = tl.result_text(code)
             if code.startswith("ok"):
                 d.destroy()
                 self.dialog = None
                 self.refresh()
-                GLib.spawn_async(["notify-send", "--icon=preferences-system-time",
-                                  "--app-name=Time", msg],
-                                 flags=GLib.SpawnFlags.SEARCH_PATH)
+                tl.notify(msg, "")
                 return
             status.set_markup(f"<b>{GLib.markup_escape_text(msg)}</b>")
             status.show()

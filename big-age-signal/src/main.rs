@@ -871,13 +871,13 @@ fn terminate_session(username: &str, session_id: &str, reason: &str) {
         .output();
 }
 
-/// Show a desktop notification in the user's graphical session.
+/// Runs `program args` as `username` inside their graphical session.
 ///
-/// Runs `notify-send` as the target user (initgroups + setgid + setuid, needs
-/// only CAP_SETUID/CAP_SETGID — no `sudo`) and points it at the user's
-/// session bus, which a freshly spawned process would otherwise not find.
+/// The child gets the user's identity (setgroups + setgid + setuid, which
+/// needs only CAP_SETUID/CAP_SETGID — no `sudo`), their session bus (which a
+/// process spawned by the daemon would otherwise not find) and their locale.
 /// Fire-and-forget: a reaper thread waits on the child so it never lingers.
-fn notify_user(username: &str, summary: &str, body: &str) {
+fn spawn_as_user(username: &str, program: &str, args: &[&str]) {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 
@@ -890,22 +890,21 @@ fn notify_user(username: &str, summary: &str, body: &str) {
     let (uid, gid) = (user.uid, user.gid);
     let runtime_dir = format!("/run/user/{}", uid.as_raw());
 
-    let mut cmd = Command::new("notify-send");
-    cmd.args([
-        "--urgency=critical",
-        "--app-name=Controle parental",
-        "--icon=dialog-warning",
-        summary,
-        body,
-    ])
-    .env_clear()
-    .env("PATH", "/usr/bin:/bin")
-    .env("XDG_RUNTIME_DIR", &runtime_dir)
-    .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={runtime_dir}/bus"))
-    .current_dir("/")
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &user.dir)
+        .env("USER", username)
+        .env("XDG_RUNTIME_DIR", &runtime_dir)
+        .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={runtime_dir}/bus"))
+        .current_dir("/")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(lang) = user_locale(username) {
+        cmd.env("LANG", lang);
+    }
 
     // Resolve groups *before* fork (NSS lookups are not fork-safe).
     let groups = nix::unistd::getgrouplist(&cname, gid).unwrap_or_else(|_| vec![gid]);
@@ -926,11 +925,25 @@ fn notify_user(username: &str, summary: &str, body: &str) {
                 let _ = child.wait();
             });
         }
-        Err(e) => eprintln!("notify-send for {username} failed: {e}"),
+        Err(e) => eprintln!("{program} for {username} failed: {e}"),
     }
 }
 
-/// Notification texts shown to the supervised user.
+/// Locale of `username` (AccountsService `Language=`, else the system
+/// `LANG`), so the alert is shown in the user's language.
+fn user_locale(username: &str) -> Option<String> {
+    let value_of = |path: &str, key: &str| -> Option<String> {
+        fs::read_to_string(path).ok()?.lines().find_map(|l| {
+            l.strip_prefix(key)
+                .map(|v| v.trim().trim_matches('"').to_string())
+                .filter(|v| !v.is_empty())
+        })
+    };
+    value_of(&format!("/var/lib/AccountsService/users/{username}"), "Language=")
+        .or_else(|| value_of("/etc/locale.conf", "LANG="))
+}
+
+/// Alerts shown to the supervised user.
 enum Msg {
     /// Daily quota: N minutes left.
     DailyWarn(u32),
@@ -942,91 +955,46 @@ enum Msg {
     ScheduleEnd,
 }
 
-/// Language ("fr", "pt" or "en") of `username`: AccountsService first, then
-/// the system locale, English as a last resort.
-fn user_lang(username: &str) -> &'static str {
-    let from_locale = |loc: &str| -> Option<&'static str> {
-        match loc.get(..2)? {
-            "fr" => Some("fr"),
-            "pt" => Some("pt"),
-            _ => None,
-        }
-    };
-    let user_file = format!("/var/lib/AccountsService/users/{username}");
-    let value_of = |content: &str, key: &str| -> Option<String> {
-        content
-            .lines()
-            .find_map(|l| l.strip_prefix(key).map(|v| v.trim().to_string()))
-    };
-    if let Ok(c) = fs::read_to_string(&user_file) {
-        if let Some(lang) = value_of(&c, "Language=") {
-            return from_locale(&lang).unwrap_or("en");
-        }
-    }
-    if let Ok(c) = fs::read_to_string("/etc/locale.conf") {
-        if let Some(lang) = value_of(&c, "LANG=") {
-            return from_locale(&lang).unwrap_or("en");
-        }
-    }
-    "en"
-}
-
-fn message(lang: &str, m: &Msg) -> (String, String) {
-    match (lang, m) {
-        ("fr", Msg::DailyWarn(n)) => (
-            format!("Attention — {n} min restante(s)"),
-            format!("Ton temps d'utilisation du jour se termine dans {n} minute(s)."),
-        ),
-        ("pt", Msg::DailyWarn(n)) => (
-            format!("Aviso — {n} min restante(s)"),
-            format!("Seu tempo diário acaba em {n} minuto(s)."),
-        ),
-        (_, Msg::DailyWarn(n)) => (
-            format!("Warning — {n} min left"),
-            format!("Your daily screen time ends in {n} minute(s)."),
-        ),
-        ("fr", Msg::DailyDone(n)) => (
-            "Temps du jour épuisé".to_string(),
-            format!("Ton temps d'utilisation quotidien de {n} min est atteint."),
-        ),
-        ("pt", Msg::DailyDone(n)) => (
-            "Tempo diário esgotado".to_string(),
-            format!("Seu tempo de uso diário de {n} min foi atingido."),
-        ),
-        (_, Msg::DailyDone(n)) => (
-            "Daily time is up".to_string(),
-            format!("Your daily screen time of {n} min has been reached."),
-        ),
-        ("fr", Msg::ScheduleWarn(n)) => (
-            format!("Attention — {n} min restante(s)"),
-            format!("La plage horaire autorisée se termine dans {n} minute(s)."),
-        ),
-        ("pt", Msg::ScheduleWarn(n)) => (
-            format!("Aviso — {n} min restante(s)"),
-            format!("O horário de uso permitido termina em {n} minuto(s)."),
-        ),
-        (_, Msg::ScheduleWarn(n)) => (
-            format!("Warning — {n} min left"),
-            format!("The allowed usage period ends in {n} minute(s)."),
-        ),
-        ("fr", Msg::ScheduleEnd) => (
-            "Plage horaire terminée".to_string(),
-            "La période d'utilisation autorisée est terminée.".to_string(),
-        ),
-        ("pt", Msg::ScheduleEnd) => (
-            "Horário de uso encerrado".to_string(),
-            "O período de uso permitido terminou.".to_string(),
-        ),
-        (_, Msg::ScheduleEnd) => (
-            "Usage period ended".to_string(),
-            "The allowed usage period is over.".to_string(),
-        ),
-    }
-}
+/// Translated alerts are rendered by `big-time-left --alert` (gettext, same
+/// catalogue as the application); English is only a fallback when it is
+/// missing.
+const ALERT_HELPER: &str = "/usr/bin/big-time-left";
 
 fn notify_msg(username: &str, m: Msg) {
-    let (summary, body) = message(user_lang(username), &m);
-    notify_user(username, &summary, &body);
+    let (kind, n) = match m {
+        Msg::DailyWarn(n) => ("daily-warn", n),
+        Msg::DailyDone(n) => ("daily-done", n),
+        Msg::ScheduleWarn(n) => ("schedule-warn", n),
+        Msg::ScheduleEnd => ("schedule-end", 0),
+    };
+    let n_str = n.to_string();
+    if Path::new(ALERT_HELPER).exists() {
+        spawn_as_user(username, ALERT_HELPER, &["--alert", kind, &n_str]);
+        return;
+    }
+    let (summary, body) = match kind {
+        "daily-warn" => (
+            format!("{n} min left"),
+            format!("Your screen time for today ends in {n} min."),
+        ),
+        "daily-done" => (
+            "Screen time is up".to_string(),
+            format!("Your daily screen time of {n} min has been reached."),
+        ),
+        "schedule-warn" => (
+            format!("{n} min left"),
+            format!("The allowed hours end in {n} min."),
+        ),
+        _ => (
+            "Allowed hours are over".to_string(),
+            "The allowed usage period has ended.".to_string(),
+        ),
+    };
+    spawn_as_user(
+        username,
+        "notify-send",
+        &["--urgency=critical", "--icon=dialog-warning", &summary, &body],
+    );
 }
 
 fn day_code_applies(code: &str, current_wday: u8) -> bool {

@@ -1,6 +1,7 @@
 """Time limits page — manage per-user screen time schedules and duration limits."""
 
 import contextlib
+from datetime import datetime
 
 import gi
 
@@ -9,7 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from big_parental_controls.services.malcontent_service import MalcontentService
-from big_parental_controls.services import time_service
+from big_parental_controls.services import extra_time_service, time_left, time_service
 from big_parental_controls.utils.i18n import setup_i18n
 
 _ = setup_i18n()
@@ -130,7 +131,6 @@ class TimeLimitsPage(Gtk.Box):
     # ── Extra time (approved by a parent with the parent code) ──────────
 
     def _build_extra_group(self, inner: Gtk.Box) -> None:
-        mark_dirty = lambda *_: None if self._loading else self._apply_btn.set_sensitive(True)  # noqa: E731
 
         group = Adw.PreferencesGroup()
         group.set_title(_("Extra Time"))
@@ -146,12 +146,12 @@ class TimeLimitsPage(Gtk.Box):
 
         self._extra_step_row = Adw.SpinRow.new_with_range(5, 60, 5)
         self._extra_step_row.set_title(_("Minutes per request"))
-        self._extra_step_row.connect("notify::value", mark_dirty)
+        self._extra_step_row.connect("notify::value", self._mark_dirty)
         group.add(self._extra_step_row)
 
         self._extra_max_row = Adw.SpinRow.new_with_range(1, 10, 1)
         self._extra_max_row.set_title(_("Maximum requests per day"))
-        self._extra_max_row.connect("notify::value", mark_dirty)
+        self._extra_max_row.connect("notify::value", self._mark_dirty)
         group.add(self._extra_max_row)
 
         self._extra_sched_row = Adw.SwitchRow()
@@ -160,7 +160,7 @@ class TimeLimitsPage(Gtk.Box):
             _("The open session may continue after the end time; "
               "logging in again afterwards stays impossible.")
         )
-        self._extra_sched_row.connect("notify::active", mark_dirty)
+        self._extra_sched_row.connect("notify::active", self._mark_dirty)
         group.add(self._extra_sched_row)
 
         self._pin_row = Adw.ActionRow()
@@ -181,6 +181,10 @@ class TimeLimitsPage(Gtk.Box):
 
         inner.append(group)
 
+    def _mark_dirty(self, *_args: object) -> None:
+        if not self._loading:
+            self._apply_btn.set_sensitive(True)
+
     def _on_extra_toggled(self, row: Adw.SwitchRow, _pspec: object) -> None:
         active = row.get_active()
         for r in (self._extra_step_row, self._extra_max_row, self._extra_sched_row):
@@ -189,10 +193,6 @@ class TimeLimitsPage(Gtk.Box):
             self._apply_btn.set_sensitive(True)
 
     def _load_extra(self) -> None:
-        from datetime import datetime
-
-        from big_parental_controls.services import extra_time_service, time_left
-
         was_loading, self._loading = self._loading, True
         s = time_service.get_extra_settings(self._selected_username)
         self._extra_enable_row.set_active(s["max_requests"] > 0)
@@ -216,8 +216,6 @@ class TimeLimitsPage(Gtk.Box):
         self._loading = was_loading
 
     def _on_set_pin(self, _button: Gtk.Button) -> None:
-        from big_parental_controls.services import extra_time_service
-
         dialog = Adw.AlertDialog()
         dialog.set_heading(_("Parent code"))
         dialog.set_body(_("4 to 8 digits. It is asked on the child's session "
@@ -256,8 +254,6 @@ class TimeLimitsPage(Gtk.Box):
         dialog.present(self.get_root())
 
     def _on_grant_now(self, _button: Gtk.Button) -> None:
-        from big_parental_controls.services import extra_time_service
-
         minutes = int(self._extra_step_row.get_value())
         res = extra_time_service.grant(self._selected_username, minutes)
         if res == "ok":

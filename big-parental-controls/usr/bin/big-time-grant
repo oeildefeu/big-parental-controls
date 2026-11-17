@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Parent side of the extra-time feature (administrators / wheel only).
 
-  big-time-grant USER [MINUTES]   grant extra minutes today (default 15)
+  big-time-grant USER [MINUTES]   grant extra minutes for today
+                                  (default: the user's "minutes per request")
   big-time-grant --set-pin        set the parent code typed on the child's
-                                  session to approve "15 more minutes"
+                                  session to approve extra time
   big-time-grant --status USER    show today's extra time of USER
 
 Talks to big-parental-daemon over D-Bus (br.com.biglinux.TimeExtra1); the
@@ -14,71 +15,59 @@ import getpass
 import sys
 from datetime import datetime
 
-from gi.repository import Gio, GLib
-
+from big_parental_controls.services import extra_time_service
 from big_parental_controls.services import time_left as tl
 
-DEST = "br.com.biglinux.ParentalDaemon"
-PATH = "/br/com/biglinux/ParentalDaemon"
-IFACE = "br.com.biglinux.TimeExtra1"
-
-
-def call(method: str, args: GLib.Variant, ret: str):
-    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-    reply = bus.call_sync(DEST, PATH, IFACE, method, args, GLib.VariantType(ret),
-                          Gio.DBusCallFlags.NONE, 10000, None)
-    return reply.unpack()[0]
+_, _n = tl._tr()
 
 
 def set_pin() -> int:
-    pin = getpass.getpass("Nouveau code parent (4 à 8 chiffres) : ")
-    if not (pin.isdigit() and 4 <= len(pin) <= 8):
-        print("Le code doit contenir 4 à 8 chiffres.")
+    pin = getpass.getpass(_("New parent code (4 to 8 digits): "))
+    if not (pin.isascii() and pin.isdigit() and 4 <= len(pin) <= 8):
+        print(_("The code must have 4 to 8 digits."))
         return 1
-    if getpass.getpass("Confirme le code : ") != pin:
-        print("Les deux codes sont différents.")
+    if getpass.getpass(_("Confirm the code: ")) != pin:
+        print(_("The two codes are different."))
         return 1
-    if call("SetParentPin", GLib.Variant("(s)", (pin,)), "(b)"):
-        print("Code parent enregistré.")
+    if extra_time_service.set_pin(pin):
+        print(_("Parent code saved."))
         return 0
-    print("Refusé (réservé aux administrateurs).")
+    print(_("Refused (administrators only)."))
     return 1
 
 
 def grant(user: str, minutes: int) -> int:
-    res = call("GrantExtra", GLib.Variant("(su)", (user, minutes)), "(s)")
+    res = extra_time_service.grant(user, minutes)
     msgs = {
-        "ok": f"+{minutes} min accordées à {user} pour aujourd'hui.",
-        "no_limit": f"{user} n'a pas de quota journalier.",
-        "invalid": "Nombre de minutes invalide (1 à 240).",
-        "denied": "Refusé (réservé aux administrateurs).",
+        "ok": _("%(min)d extra minutes granted to %(user)s for today.")
+        % {"min": minutes, "user": user},
+        "no_limit": _("%s has no daily limit or extendable schedule.") % user,
+        "invalid": _("Invalid number of minutes (1 to 240)."),
+        "denied": _("Refused (administrators only)."),
     }
-    print(msgs.get(res, res))
+    print(msgs.get(res, _("Extra time could not be granted.")))
     return 0 if res == "ok" else 1
 
 
 def status(user: str) -> int:
     info = tl.compute(user, datetime.now())
-    print(f"{user} : bonus du jour {info['bonus']} min, "
-          f"demandes restantes {info['requests_left']}/{info['max_requests']}, "
-          f"temps restant {tl.fmt(info['remaining']) if info['remaining'] is not None else 'illimité'}")
+    print(_("%(user)s: %(bonus)d min granted today, %(left)d/%(max)d request(s) left, "
+            "time left: %(rem)s")
+          % {"user": user, "bonus": info["bonus"], "left": info["requests_left"],
+             "max": info["max_requests"], "rem": tl.short_label(info["remaining"])})
     return 0
 
 
-def main(argv) -> int:
-    try:
-        if argv[:1] == ["--set-pin"]:
-            return set_pin()
-        if argv[:1] == ["--status"] and len(argv) == 2:
-            return status(argv[1])
-        if len(argv) in (1, 2) and not argv[0].startswith("-"):
-            minutes = int(argv[1]) if len(argv) == 2 else tl.compute(argv[0], datetime.now())["step"]
-            return grant(argv[0], minutes)
-    except ValueError:
-        pass
-    except GLib.Error as e:
-        print(f"Erreur D-Bus : {e.message}")
-        return 1
+def main(argv: list[str]) -> int:
+    if argv[:1] == ["--set-pin"]:
+        return set_pin()
+    if argv[:1] == ["--status"] and len(argv) == 2:
+        return status(argv[1])
+    if len(argv) in (1, 2) and not argv[0].startswith("-"):
+        if len(argv) == 1:
+            return grant(argv[0], tl.compute(argv[0], datetime.now())["step"])
+        if argv[1].isdigit():
+            return grant(argv[0], int(argv[1]))
     print(__doc__.strip())
     return 2
 
