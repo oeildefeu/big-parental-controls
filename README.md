@@ -123,7 +123,7 @@ WHO DOWNLOADS THE ISO AND INSTALLS THE SYSTEM
 | Screen time | Define daily usage limits and allowed time ranges |
 | Time left indicator | Supervised users see their remaining time in the system tray and are warned 5 and 1 minutes before the end |
 | Extra time | The child can ask for more minutes; a parent approves on the spot with a parent code (per-child amount, daily limit, optionally pushes the end of the allowed hours) |
-| Web filter | Apply family-safe DNS providers or custom DNS servers per user via nftables |
+| Web filter | Apply family-safe DNS providers or custom DNS servers per user via nftables, and block the usual bypasses (DNS-over-TLS, DNS-over-HTTPS to public resolvers, DNS over IPv6) |
 | Activity history | View weekly screen time charts, hourly usage patterns, and login sessions |
 | Privacy controls | Delete or export collected activity data (LGPD Art. 18 / GDPR Art. 20) |
 
@@ -170,7 +170,7 @@ All system-level changes go through a single `pkexec group-helper <command>` cal
 | `set-age-profile USERNAME RANGE` | Persist ECA Digital age range to `/var/lib/big-parental-controls/user-profiles.json` |
 | `dns-set UID JSON` | Write DNS config and apply nftables redirect rules |
 | `dns-remove UID` | Remove DNS config and nftables rules |
-| `dns-restore` | Restore all nftables DNS rules from saved configs (called at boot) |
+| `dns-restore` | Restore all nftables DNS rules from saved configs (run when the daemon starts) |
 | `acl-batch USERNAME BLOCK CSV UNBLOCK CSV` | Apply/remove ACL entries in a single call |
 | `time-limit-save JSON` | Write screen time quota config |
 | `time-schedule-set/remove USERNAME` | Apply/remove PAM time rules |
@@ -179,8 +179,7 @@ All system-level changes go through a single `pkexec group-helper <command>` cal
 
 | Service | Purpose |
 | --- | --- |
-| `big-parental-daemon.service` | Rust D-Bus daemon |
-| `big-parental-dns-restore.service` | Restore nftables DNS rules at boot |
+| `big-parental-daemon.service` | Rust D-Bus daemon; restores the nftables DNS rules before starting (`ExecStartPre`) |
 | `big-parental-time-check.timer` | Periodic screen time enforcement |
 
 ## User Detail Page Layout
